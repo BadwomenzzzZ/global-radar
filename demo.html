@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天气雷达示例</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        #map {
+            flex: 1;
+            height: 100%; /* 占满整个屏幕 */
+        }
+        .slider-container {
+            width: 100%;
+            padding: 10px;
+            display: flex;
+            flex-direction: column; /* 纵向排列 */
+            background: white;
+        }
+        #timeSlider {
+            width: 100%;
+            margin-bottom: 10px; /* 给进度条和时间标签之间留出空间 */
+        }
+        .time-label {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+        }
+        #playButton {
+            margin-bottom: 10px; /* 给按钮和进度条之间留出空间 */
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align:center;">天气雷达示例</h1>
+    <div id="map"></div>
+    <div class="slider-container">
+        <button id="playButton">播放</button>
+        <input type="range" id="timeSlider" min="0" max="0" step="1" value="0">
+        <div class="time-label" id="timeLabels"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        async function fetchRadarData() {
+            const response = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+            return response.json();
+        }
+
+        async function initMap() {
+            const radarData = await fetchRadarData();
+            const map = L.map('map').setView([39.915, 116.404], 11);
+
+            // 使用 ESRI 的卫星底图
+            L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 19,
+                attribution: 'Tiles © Esri &mdash; Source: USGS'
+            }).addTo(map);
+
+            // 固定铺设的地图图层
+            L.tileLayer('https://tilecache.rainviewer.com/v2/coverage/0/512/{z}/{x}/{y}/0/0_0.png', {
+                maxZoom: 19,
+                opacity: 0.5, // 设置透明度
+                attribution: 'Tiles © RainViewer'
+            }).addTo(map);
+
+            const pastData = radarData.radar.past;
+            const nowcastData = radarData.radar.nowcast;
+            const allData = [...pastData, ...nowcastData];
+            const totalLength = allData.length;
+
+            document.getElementById('timeSlider').max = totalLength - 1;
+
+            let overlayLayer;
+            let playbackInterval;
+            let isPlaying = false;
+
+            function updateTimeLabels(index) {
+                const labels = allData.map(item => new Date(item.time * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                const labelContainer = document.getElementById('timeLabels');
+                labelContainer.innerHTML = labels.map(label => `<span>${label}</span>`).join(''); // 更新时间标签
+                updateRadarImage(allData[index].path);
+            }
+
+            function updateRadarImage(path) {
+                const baseUrl = 'https://tilecache.rainviewer.com';
+                const tileLayer = L.tileLayer(`${baseUrl}${path}/512/{z}/{x}/{y}/1/0_1.png`, {
+                    maxZoom: 19,
+                    attribution: '© RainViewer'
+                });
+
+                if (overlayLayer) {
+                    map.removeLayer(overlayLayer);
+                }
+                overlayLayer = tileLayer.addTo(map);
+            }
+
+            // 设置默认值为倒数第三个位置
+            const defaultIndex = totalLength - 3;
+            document.getElementById('timeSlider').value = defaultIndex;
+            updateTimeLabels(defaultIndex);
+
+            document.getElementById('timeSlider').addEventListener('input', function () {
+                updateTimeLabels(this.value);
+            });
+
+            // 播放/暂停功能
+            document.getElementById('playButton').addEventListener('click', function () {
+                if (isPlaying) {
+                    clearInterval(playbackInterval);
+                    this.textContent = '播放';
+                } else {
+                    this.textContent = '暂停';
+                    let currentIndex = parseInt(document.getElementById('timeSlider').value);
+                    playbackInterval = setInterval(() => {
+                        currentIndex++;
+                        if (currentIndex >= totalLength) {
+                            currentIndex = 0; // 重置为第一个
+                        }
+                        document.getElementById('timeSlider').value = currentIndex;
+                        updateTimeLabels(currentIndex);
+                    }, 500); // 每秒播放一次
+                }
+                isPlaying = !isPlaying;
+            });
+
+            updateTimeLabels(defaultIndex);
+        }
+
+        initMap();
+    </script>
+</body>
+</html>
